@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -7,6 +7,7 @@ import {
   FlatList,
   ActivityIndicator,
   TextInput,
+  ScrollView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -15,7 +16,15 @@ import { ThemedView } from '@/components/ThemedView';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { StorageKeys } from '@/constants/StorageKeys';
-import { initDatabase, hasMenuData, saveMenuItems, getMenuItems } from '@/utils/database';
+import {
+  initDatabase,
+  hasMenuData,
+  saveMenuItems,
+  getMenuItems,
+  getCategories,
+  filterMenuItems
+} from '@/utils/database';
+import { debounce } from '@/utils/debounce';
 
 /**
  * Home screen component displaying the Little Lemon menu
@@ -26,6 +35,11 @@ export default function Home({ navigation }) {
   const colorScheme = useColorScheme() ?? 'light';
   const tintColor = Colors[colorScheme].tint;
 
+  // Initialize selected categories with "All"
+  useEffect(() => {
+    setSelectedCategories(['All']);
+  }, []);
+
   // State for user data and menu items
   const [userData, setUserData] = useState(null);
   const [menuItems, setMenuItems] = useState([]);
@@ -33,10 +47,15 @@ export default function Home({ navigation }) {
   const [error, setError] = useState(null);
   const [searchText, setSearchText] = useState('');
   const [filteredMenuItems, setFilteredMenuItems] = useState([]);
-  const [activeCategory, setActiveCategory] = useState('All');
+  const [availableCategories, setAvailableCategories] = useState([]);
+  const [selectedCategories, setSelectedCategories] = useState([]);
 
-  // Categories for filtering
-  const categories = ['All', 'Starters', 'Mains', 'Desserts', 'Drinks'];
+  // Create a debounced search function
+  const debouncedSearch = useRef(
+    debounce((text) => {
+      setSearchText(text);
+    }, 500)
+  ).current;
 
   // Load user data from storage
   useEffect(() => {
@@ -78,6 +97,11 @@ export default function Home({ navigation }) {
             console.log(`Loaded ${items.length} items from SQLite`);
             setMenuItems(items);
             setFilteredMenuItems(items);
+
+            // Load categories
+            const categories = await getCategories();
+            console.log('Available categories:', categories);
+            setAvailableCategories(['All', ...categories]);
           } else {
             // Fetch data from API
             console.log('Fetching menu data from API');
@@ -123,10 +147,16 @@ export default function Home({ navigation }) {
           id: index + 1, // Ensure each item has a unique ID
           image: item.image
             ? `https://github.com/Meta-Mobile-Developer-PC/Working-With-Data-API/blob/main/images/${item.image}?raw=true`
-            : null
+            : null,
+          // Ensure category is set
+          category: item.category || 'Other'
         }));
 
         console.log(`Processed ${processedMenuItems.length} menu items`);
+
+        // Extract unique categories
+        const uniqueCategories = [...new Set(processedMenuItems.map(item => item.category))];
+        console.log('Extracted categories:', uniqueCategories);
 
         // Try to save to SQLite, but don't fail if it doesn't work
         try {
@@ -141,7 +171,8 @@ export default function Home({ navigation }) {
         // Update state
         setMenuItems(processedMenuItems);
         setFilteredMenuItems(processedMenuItems);
-        console.log('Menu items set in state');
+        setAvailableCategories(['All', ...uniqueCategories]);
+        console.log('Menu items and categories set in state');
       } else {
         throw new Error('Invalid data format');
       }
@@ -152,29 +183,85 @@ export default function Home({ navigation }) {
     }
   };
 
-  // Filter menu items based on search text and category
+  // Handle category selection
+  const toggleCategory = useCallback((category) => {
+    setSelectedCategories(prev => {
+      // If "All" is selected, clear other selections
+      if (category === 'All') {
+        return ['All'];
+      }
+
+      // If another category is selected while "All" is active, remove "All"
+      let newSelection = prev.includes('All') && category !== 'All'
+        ? prev.filter(cat => cat !== 'All')
+        : [...prev];
+
+      // Toggle the selected category
+      if (newSelection.includes(category)) {
+        // If this is the last category, select "All" instead
+        if (newSelection.length === 1) {
+          return ['All'];
+        }
+        // Otherwise, just remove this category
+        return newSelection.filter(cat => cat !== category);
+      } else {
+        // Add the category
+        return [...newSelection, category];
+      }
+    });
+  }, []);
+
+  // Filter menu items based on search text and selected categories
   useEffect(() => {
     if (menuItems.length === 0) return;
 
-    let filtered = [...menuItems];
+    const filterItems = async () => {
+      try {
+        console.log('Filtering with:', {
+          searchText,
+          selectedCategories: selectedCategories.includes('All') ? [] : selectedCategories
+        });
 
-    // Filter by search text
-    if (searchText) {
-      filtered = filtered.filter(item =>
-        item.name.toLowerCase().includes(searchText.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchText.toLowerCase())
-      );
-    }
+        // Use SQLite for filtering if possible
+        try {
+          const filteredItems = await filterMenuItems(
+            selectedCategories.includes('All') ? [] : selectedCategories,
+            searchText
+          );
+          setFilteredMenuItems(filteredItems);
+          console.log(`Filtered to ${filteredItems.length} items using SQLite`);
+        } catch (dbError) {
+          console.error('Error filtering with SQLite:', dbError);
 
-    // Filter by category
-    if (activeCategory !== 'All') {
-      filtered = filtered.filter(item =>
-        item.category && item.category.toLowerCase() === activeCategory.toLowerCase()
-      );
-    }
+          // Fall back to in-memory filtering
+          console.log('Falling back to in-memory filtering');
+          let filtered = [...menuItems];
 
-    setFilteredMenuItems(filtered);
-  }, [searchText, activeCategory, menuItems]);
+          // Filter by search text
+          if (searchText) {
+            filtered = filtered.filter(item =>
+              item.name.toLowerCase().includes(searchText.toLowerCase()) ||
+              item.description.toLowerCase().includes(searchText.toLowerCase())
+            );
+          }
+
+          // Filter by categories
+          if (selectedCategories.length > 0 && !selectedCategories.includes('All')) {
+            filtered = filtered.filter(item =>
+              item.category && selectedCategories.includes(item.category)
+            );
+          }
+
+          setFilteredMenuItems(filtered);
+          console.log(`Filtered to ${filtered.length} items in memory`);
+        }
+      } catch (error) {
+        console.error('Error during filtering:', error);
+      }
+    };
+
+    filterItems();
+  }, [searchText, selectedCategories, menuItems]);
 
   // Generate initials for avatar placeholder
   const getInitials = useCallback(() => {
@@ -195,14 +282,14 @@ export default function Home({ navigation }) {
     <TouchableOpacity
       style={[
         styles.categoryItem,
-        activeCategory === item && { backgroundColor: tintColor }
+        selectedCategories.includes(item) && { backgroundColor: tintColor }
       ]}
-      onPress={() => setActiveCategory(item)}
+      onPress={() => toggleCategory(item)}
     >
       <ThemedText
         style={[
           styles.categoryText,
-          activeCategory === item && styles.activeCategoryText
+          selectedCategories.includes(item) && styles.activeCategoryText
         ]}
       >
         {item}
@@ -271,6 +358,17 @@ export default function Home({ navigation }) {
           <ThemedText style={styles.heroDescription}>
             We are a family owned Mediterranean restaurant, focused on traditional recipes served with a modern twist.
           </ThemedText>
+
+          {/* Search Bar in Hero Section */}
+          <View style={styles.heroSearchContainer}>
+            <TextInput
+              style={styles.heroSearchInput}
+              placeholder="Search menu items..."
+              onChangeText={debouncedSearch}
+              placeholderTextColor="#EDEFEE"
+              clearButtonMode="while-editing"
+            />
+          </View>
         </View>
         <Image
           source={require('@/assets/images/react-logo.png')}
@@ -279,23 +377,12 @@ export default function Home({ navigation }) {
         />
       </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search menu items..."
-          value={searchText}
-          onChangeText={setSearchText}
-          clearButtonMode="while-editing"
-        />
-      </View>
-
       {/* Categories */}
       <View style={styles.categoriesContainer}>
         <ThemedText type="subtitle" style={styles.categoriesTitle}>ORDER FOR DELIVERY</ThemedText>
         <FlatList
           horizontal
-          data={categories}
+          data={availableCategories}
           renderItem={renderCategoryItem}
           keyExtractor={(item) => item}
           showsHorizontalScrollIndicator={false}
@@ -388,6 +475,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#495E57',
     padding: 16,
+    paddingVertical: 24,
     alignItems: 'center',
   },
   heroContent: {
@@ -395,36 +483,40 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   heroTitle: {
-    fontSize: 28,
+    fontSize: 32,
+    fontWeight: 'bold',
     color: '#F4CE14',
     marginBottom: 4,
   },
   heroSubtitle: {
-    fontSize: 20,
+    fontSize: 22,
     color: 'white',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   heroDescription: {
-    fontSize: 14,
+    fontSize: 16,
     color: 'white',
     opacity: 0.8,
+    marginBottom: 16,
+    lineHeight: 22,
   },
   heroImage: {
-    width: 100,
-    height: 100,
+    width: 120,
+    height: 120,
     borderRadius: 12,
   },
-
-  // Search Bar
-  searchContainer: {
-    padding: 16,
-    paddingBottom: 8,
+  heroSearchContainer: {
+    marginTop: 8,
+    width: '100%',
   },
-  searchInput: {
-    backgroundColor: '#F0F0F0',
+  heroSearchInput: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 8,
-    padding: 10,
+    padding: 12,
     fontSize: 16,
+    color: 'white',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
 
   // Categories

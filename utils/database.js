@@ -157,3 +157,95 @@ export const getMenuItems = () => {
     );
   });
 };
+
+/**
+ * Get all unique categories from the database
+ * @returns {Promise<Array>} Array of unique categories
+ */
+export const getCategories = () => {
+  return new Promise((resolve, reject) => {
+    db.transaction(
+      (tx) => {
+        tx.executeSql(
+          'SELECT DISTINCT category FROM menu WHERE category IS NOT NULL;',
+          [],
+          (_, { rows }) => {
+            // Extract category names from the result
+            const categories = rows._array.map(item => item.category);
+            resolve(categories);
+          },
+          (_, error) => {
+            console.error('Error getting categories:', error);
+            reject(error);
+            return false;
+          }
+        );
+      },
+      (error) => {
+        console.error('Transaction error:', error);
+        reject(error);
+      }
+    );
+  });
+};
+
+/**
+ * Filter menu items by categories and search text
+ * @param {Array} categories - Array of categories to filter by (empty array means no category filter)
+ * @param {string} searchText - Text to search for in dish names (empty string means no text filter)
+ * @returns {Promise<Array>} Array of filtered menu items
+ */
+export const filterMenuItems = (categories = [], searchText = '') => {
+  return new Promise((resolve, reject) => {
+    db.transaction(
+      (tx) => {
+        let query = 'SELECT * FROM menu';
+        const params = [];
+
+        // Build WHERE clause based on filters
+        const conditions = [];
+
+        // Add category filter if categories are provided
+        if (categories.length > 0) {
+          const placeholders = categories.map(() => '?').join(',');
+          conditions.push(`category IN (${placeholders})`);
+          params.push(...categories);
+        }
+
+        // Add search text filter if provided
+        if (searchText.trim() !== '') {
+          conditions.push(`name LIKE ?`);
+          params.push(`%${searchText}%`);
+        }
+
+        // Add WHERE clause if there are conditions
+        if (conditions.length > 0) {
+          query += ` WHERE ${conditions.join(' AND ')}`;
+        }
+
+        // Add ORDER BY clause
+        query += ' ORDER BY name;';
+
+        console.log('SQL Query:', query);
+        console.log('SQL Params:', params);
+
+        tx.executeSql(
+          query,
+          params,
+          (_, { rows }) => {
+            resolve(rows._array);
+          },
+          (_, error) => {
+            console.error('Error filtering menu items:', error);
+            reject(error);
+            return false;
+          }
+        );
+      },
+      (error) => {
+        console.error('Transaction error:', error);
+        reject(error);
+      }
+    );
+  });
+};
