@@ -7,7 +7,6 @@ import {
   FlatList,
   ActivityIndicator,
   TextInput,
-  ScrollView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -16,14 +15,6 @@ import { ThemedView } from '@/components/ThemedView';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { StorageKeys } from '@/constants/StorageKeys';
-import {
-  initDatabase,
-  hasMenuData,
-  saveMenuItems,
-  getMenuItems,
-  getCategories,
-  filterMenuItems
-} from '@/utils/database';
 import { debounce } from '@/utils/debounce';
 
 /**
@@ -73,62 +64,25 @@ export default function Home({ navigation }) {
     loadUserData();
   }, []);
 
-  // Initialize database and load menu data
+  // Initialize and load menu data
   useEffect(() => {
-    const initializeAndLoadData = async () => {
+    const loadData = async () => {
       try {
         setIsLoading(true);
         setError(null);
 
-        try {
-          // Initialize the database
-          console.log('Initializing database...');
-          await initDatabase();
-          console.log('Database initialized successfully');
-
-          // Check if we already have menu data
-          const hasData = await hasMenuData();
-          console.log('Has existing menu data:', hasData);
-
-          if (hasData) {
-            // Load data from SQLite
-            console.log('Loading menu data from SQLite');
-            const items = await getMenuItems();
-            console.log(`Loaded ${items.length} items from SQLite`);
-
-            if (items.length > 0) {
-              setMenuItems(items);
-              setFilteredMenuItems(items);
-
-              // Load categories
-              const categories = await getCategories();
-              console.log('Available categories:', categories);
-              setAvailableCategories(['All', ...categories]);
-            } else {
-              // If we got an empty array, fetch from API
-              console.log('No items found in database, fetching from API');
-              await fetchMenuDataFromAPI();
-            }
-          } else {
-            // Fetch data from API
-            console.log('No data in database, fetching from API');
-            await fetchMenuDataFromAPI();
-          }
-        } catch (dbError) {
-          console.error('Database error:', dbError);
-          // If there's a database error, fall back to API
-          console.log('Falling back to API due to database error');
-          await fetchMenuDataFromAPI();
-        }
+        // Skip SQLite operations entirely and fetch from API directly
+        console.log('Fetching menu data from API directly');
+        await fetchMenuDataFromAPI();
       } catch (error) {
-        console.error('Error initializing and loading data:', error);
+        console.error('Error loading data:', error);
         setError('Failed to load menu data. Please try again.');
       } finally {
         setIsLoading(false);
       }
     };
 
-    initializeAndLoadData();
+    loadData();
   }, []);
 
   // Fetch menu data from the API
@@ -165,17 +119,8 @@ export default function Home({ navigation }) {
         const uniqueCategories = [...new Set(processedMenuItems.map(item => item.category))];
         console.log('Extracted categories:', uniqueCategories);
 
-        // Try to save to SQLite, but don't fail if it doesn't work
-        try {
-          console.log('Attempting to save to SQLite...');
-          await saveMenuItems(processedMenuItems);
-          console.log('Successfully saved to SQLite');
-        } catch (dbError) {
-          console.error('Error saving to SQLite (continuing anyway):', dbError);
-          // Continue even if saving to database fails
-        }
-
-        // Update state
+        // Skip SQLite operations entirely - they're causing issues
+        // Just update the state directly
         setMenuItems(processedMenuItems);
         setFilteredMenuItems(processedMenuItems);
         setAvailableCategories(['All', ...uniqueCategories]);
@@ -190,8 +135,66 @@ export default function Home({ navigation }) {
     }
   };
 
+
+
+  // Filter menu items based on search text and selected categories
+  useEffect(() => {
+    if (menuItems.length === 0) return;
+
+    const filterItems = () => {
+      try {
+        console.log('Filtering with:', {
+          searchText,
+          selectedCategories: selectedCategories.includes('All') ? [] : selectedCategories
+        });
+
+        // Use in-memory filtering for reliability
+        console.log('Using in-memory filtering');
+        let filtered = [...menuItems];
+
+        // Filter by search text
+        if (searchText) {
+          filtered = filtered.filter(item =>
+            (item.name && item.name.toLowerCase().includes(searchText.toLowerCase())) ||
+            (item.description && item.description.toLowerCase().includes(searchText.toLowerCase()))
+          );
+        }
+
+        // Filter by categories
+        if (selectedCategories.length > 0 && !selectedCategories.includes('All')) {
+          filtered = filtered.filter(item =>
+            item.category && selectedCategories.includes(item.category)
+          );
+        }
+
+        setFilteredMenuItems(filtered);
+        console.log(`Filtered to ${filtered.length} items in memory`);
+      } catch (error) {
+        console.error('Error during filtering:', error);
+        // If filtering fails, just show all items
+        setFilteredMenuItems(menuItems);
+      }
+    };
+
+    filterItems();
+  }, [searchText, selectedCategories, menuItems]);
+
+  // Generate initials for avatar placeholder
+  const getInitials = useCallback(() => {
+    if (!userData) return '';
+
+    const firstInitial = userData.firstName ? userData.firstName.charAt(0).toUpperCase() : '';
+    const lastInitial = userData.lastName ? userData.lastName.charAt(0).toUpperCase() : '';
+    return `${firstInitial}${lastInitial}`;
+  }, [userData]);
+
+  // Navigate to profile screen
+  const navigateToProfile = () => {
+    navigation.navigate('Profile');
+  };
+
   // Handle category selection
-  const toggleCategory = useCallback((category) => {
+  const handleCategoryPress = useCallback((category) => {
     setSelectedCategories(prev => {
       // If "All" is selected, clear other selections
       if (category === 'All') {
@@ -218,72 +221,6 @@ export default function Home({ navigation }) {
     });
   }, []);
 
-  // Filter menu items based on search text and selected categories
-  useEffect(() => {
-    if (menuItems.length === 0) return;
-
-    const filterItems = async () => {
-      try {
-        console.log('Filtering with:', {
-          searchText,
-          selectedCategories: selectedCategories.includes('All') ? [] : selectedCategories
-        });
-
-        // Use SQLite for filtering if possible
-        try {
-          const filteredItems = await filterMenuItems(
-            selectedCategories.includes('All') ? [] : selectedCategories,
-            searchText
-          );
-          setFilteredMenuItems(filteredItems);
-          console.log(`Filtered to ${filteredItems.length} items using SQLite`);
-        } catch (dbError) {
-          console.error('Error filtering with SQLite:', dbError);
-
-          // Fall back to in-memory filtering
-          console.log('Falling back to in-memory filtering');
-          let filtered = [...menuItems];
-
-          // Filter by search text
-          if (searchText) {
-            filtered = filtered.filter(item =>
-              item.name.toLowerCase().includes(searchText.toLowerCase()) ||
-              item.description.toLowerCase().includes(searchText.toLowerCase())
-            );
-          }
-
-          // Filter by categories
-          if (selectedCategories.length > 0 && !selectedCategories.includes('All')) {
-            filtered = filtered.filter(item =>
-              item.category && selectedCategories.includes(item.category)
-            );
-          }
-
-          setFilteredMenuItems(filtered);
-          console.log(`Filtered to ${filtered.length} items in memory`);
-        }
-      } catch (error) {
-        console.error('Error during filtering:', error);
-      }
-    };
-
-    filterItems();
-  }, [searchText, selectedCategories, menuItems]);
-
-  // Generate initials for avatar placeholder
-  const getInitials = useCallback(() => {
-    if (!userData) return '';
-
-    const firstInitial = userData.firstName ? userData.firstName.charAt(0).toUpperCase() : '';
-    const lastInitial = userData.lastName ? userData.lastName.charAt(0).toUpperCase() : '';
-    return `${firstInitial}${lastInitial}`;
-  }, [userData]);
-
-  // Navigate to profile screen
-  const navigateToProfile = () => {
-    navigation.navigate('Profile');
-  };
-
   // Render category item
   const renderCategoryItem = ({ item }) => (
     <TouchableOpacity
@@ -291,7 +228,7 @@ export default function Home({ navigation }) {
         styles.categoryItem,
         selectedCategories.includes(item) && { backgroundColor: tintColor }
       ]}
-      onPress={() => toggleCategory(item)}
+      onPress={() => handleCategoryPress(item)}
     >
       <ThemedText
         style={[
