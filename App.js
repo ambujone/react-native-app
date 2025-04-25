@@ -13,6 +13,7 @@ import { ThemedView } from './components/ThemedView';
 // Import screens
 import OnboardingScreen from './screens/Onboarding';
 import ProfileScreen from './screens/Profile';
+import HomeScreen from './screens/Home';
 import SplashScreen from './screens/SplashScreen';
 
 // Import constants
@@ -158,12 +159,19 @@ export default function App() {
           }}
         >
           {state.isOnboardingCompleted ? (
-            // User has completed onboarding, show the Profile screen
-            <Stack.Screen
-              name="Profile"
-              component={ProfileScreen}
-              initialParams={{ userData: state.userData }}
-            />
+            // User has completed onboarding, show the Home and Profile screens
+            <>
+              <Stack.Screen
+                name="Home"
+                component={HomeScreen}
+                initialParams={{ userData: state.userData }}
+              />
+              <Stack.Screen
+                name="Profile"
+                component={ProfileScreen}
+                initialParams={{ userData: state.userData }}
+              />
+            </>
           ) : (
             // User has not completed onboarding, show the Onboarding screen
             <Stack.Screen name="Onboarding">

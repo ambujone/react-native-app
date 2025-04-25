@@ -14,8 +14,10 @@ import { useColorScheme } from '@/hooks/useColorScheme';
  */
 export default function Onboarding({ onComplete, navigation = null }) {
   const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [isFirstNameValid, setIsFirstNameValid] = useState(false);
+  const [isLastNameValid, setIsLastNameValid] = useState(true); // Default to true as it's optional
   const [isEmailValid, setIsEmailValid] = useState(false);
   const colorScheme = useColorScheme() ?? 'light';
   const tintColor = Colors[colorScheme].tint;
@@ -26,6 +28,13 @@ export default function Onboarding({ onComplete, navigation = null }) {
     const nameRegex = /^[A-Za-z]+$/;
     setIsFirstNameValid(firstName.trim() !== '' && nameRegex.test(firstName));
   }, [firstName]);
+
+  // Validate last name (optional but must be valid if provided)
+  useEffect(() => {
+    // Last name can be empty but if provided, should contain only letters
+    const nameRegex = /^[A-Za-z]*$/;
+    setIsLastNameValid(lastName.trim() === '' || nameRegex.test(lastName));
+  }, [lastName]);
 
   // Validate email
   useEffect(() => {
@@ -38,6 +47,7 @@ export default function Onboarding({ onComplete, navigation = null }) {
     // Create user data object
     const userData = {
       firstName,
+      lastName,
       email,
       completedAt: new Date().toISOString(),
     };
@@ -90,6 +100,31 @@ export default function Onboarding({ onComplete, navigation = null }) {
         )}
 
         <ThemedText type="defaultSemiBold" style={styles.inputLabel}>
+          Last Name (Optional)
+        </ThemedText>
+        <TextInput
+          style={[
+            styles.input,
+            { borderColor: isLastNameValid ? tintColor : '#FF0000' },
+            { color: Colors[colorScheme].text }
+          ]}
+          placeholder="Enter your last name"
+          placeholderTextColor={Colors[colorScheme].icon}
+          value={lastName}
+          onChangeText={setLastName}
+          autoCapitalize="words"
+          autoComplete="name-family"
+          returnKeyType="next"
+          accessibilityLabel="Last name input"
+          accessibilityHint="Enter your last name using only letters (optional)"
+        />
+        {!isLastNameValid && lastName.length > 0 && (
+          <ThemedText style={styles.errorText}>
+            Last name must contain only letters
+          </ThemedText>
+        )}
+
+        <ThemedText type="defaultSemiBold" style={styles.inputLabel}>
           Email
         </ThemedText>
         <TextInput
@@ -122,16 +157,16 @@ export default function Onboarding({ onComplete, navigation = null }) {
         style={[
           styles.button,
           {
-            backgroundColor: isFirstNameValid && isEmailValid ? tintColor : '#CCCCCC',
+            backgroundColor: isFirstNameValid && isLastNameValid && isEmailValid ? tintColor : '#CCCCCC',
           }
         ]}
         onPress={handleNext}
-        disabled={!isFirstNameValid || !isEmailValid}
+        disabled={!isFirstNameValid || !isLastNameValid || !isEmailValid}
         activeOpacity={0.8}
         accessibilityLabel="Next button"
         accessibilityHint="Complete onboarding and proceed to the app"
         accessibilityRole="button"
-        accessibilityState={{ disabled: !isFirstNameValid || !isEmailValid }}>
+        accessibilityState={{ disabled: !isFirstNameValid || !isLastNameValid || !isEmailValid }}>
         <ThemedText style={styles.buttonText}>Next</ThemedText>
       </TouchableOpacity>
     </ThemedView>
