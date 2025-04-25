@@ -10,8 +10,9 @@ import { useColorScheme } from '@/hooks/useColorScheme';
  * Onboarding screen component
  * @param {Object} props - Component props
  * @param {Function} props.onComplete - Callback function to call when onboarding is complete
+ * @param {Object} [props.navigation] - React Navigation navigation object (optional)
  */
-export default function Onboarding({ onComplete }) {
+export default function Onboarding({ onComplete, navigation = null }) {
   const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState('');
   const [isFirstNameValid, setIsFirstNameValid] = useState(false);
@@ -34,12 +35,19 @@ export default function Onboarding({ onComplete }) {
   }, [email]);
 
   const handleNext = () => {
+    // Create user data object
+    const userData = {
+      firstName,
+      email,
+      completedAt: new Date().toISOString(),
+    };
+
     // Log the user information
-    console.log('Next button pressed with:', { firstName, email });
+    console.log('Next button pressed with:', userData);
 
     // Call the onComplete callback to navigate to the main app
     if (onComplete) {
-      onComplete();
+      onComplete(userData);
     }
   };
 
@@ -62,13 +70,18 @@ export default function Onboarding({ onComplete }) {
         <TextInput
           style={[
             styles.input,
-            { borderColor: isFirstNameValid ? tintColor : '#FF0000' },
+            { borderColor: isFirstNameValid ? tintColor : (firstName.length > 0 ? '#FF0000' : tintColor) },
             { color: Colors[colorScheme].text }
           ]}
           placeholder="Enter your first name"
           placeholderTextColor={Colors[colorScheme].icon}
           value={firstName}
           onChangeText={setFirstName}
+          autoCapitalize="words"
+          autoComplete="name"
+          returnKeyType="next"
+          accessibilityLabel="First name input"
+          accessibilityHint="Enter your first name using only letters"
         />
         {!isFirstNameValid && firstName.length > 0 && (
           <ThemedText style={styles.errorText}>
@@ -91,6 +104,12 @@ export default function Onboarding({ onComplete }) {
           onChangeText={setEmail}
           keyboardType="email-address"
           autoCapitalize="none"
+          autoComplete="email"
+          returnKeyType="done"
+          textContentType="emailAddress"
+          accessibilityLabel="Email input"
+          accessibilityHint="Enter your email address"
+          onSubmitEditing={isFirstNameValid && isEmailValid ? handleNext : undefined}
         />
         {!isEmailValid && email.length > 0 && (
           <ThemedText style={styles.errorText}>
@@ -108,7 +127,11 @@ export default function Onboarding({ onComplete }) {
         ]}
         onPress={handleNext}
         disabled={!isFirstNameValid || !isEmailValid}
-        activeOpacity={0.8}>
+        activeOpacity={0.8}
+        accessibilityLabel="Next button"
+        accessibilityHint="Complete onboarding and proceed to the app"
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !isFirstNameValid || !isEmailValid }}>
         <ThemedText style={styles.buttonText}>Next</ThemedText>
       </TouchableOpacity>
     </ThemedView>
