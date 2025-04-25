@@ -1,7 +1,59 @@
-import { openDatabase } from 'expo-sqlite';
+import * as SQLite from 'expo-sqlite';
 
-// Open the database
-const db = openDatabase('little_lemon.db');
+// Open the database - handle different versions of expo-sqlite
+let db;
+try {
+  // For newer versions of expo-sqlite
+  if (SQLite.openDatabaseSync) {
+    db = SQLite.openDatabaseSync('little_lemon.db');
+  }
+  // For older versions of expo-sqlite
+  else if (SQLite.default && SQLite.default.openDatabase) {
+    db = SQLite.default.openDatabase('little_lemon.db');
+  }
+  // Fallback to direct import
+  else if (SQLite.openDatabase) {
+    db = SQLite.openDatabase('little_lemon.db');
+  }
+  else {
+    console.error('SQLite methods not found. Available methods:', Object.keys(SQLite));
+    throw new Error('SQLite not properly initialized');
+  }
+  console.log('SQLite database opened successfully');
+} catch (error) {
+  console.error('Error opening SQLite database:', error);
+  // Create a mock database for fallback
+  db = {
+    transaction: (callback, errorCallback, successCallback) => {
+      console.warn('Using mock database - SQLite not available');
+
+      // Create a mock transaction object
+      const mockTx = {
+        executeSql: (query, params, successCb, errorCb) => {
+          console.warn('Mock SQL execution:', query);
+
+          // For SELECT queries, return empty array
+          if (query.trim().toUpperCase().startsWith('SELECT')) {
+            successCb(mockTx, { rows: { _array: [] } });
+          }
+          // For other queries, just succeed
+          else {
+            successCb(mockTx, { rowsAffected: 0 });
+          }
+        }
+      };
+
+      // Call the transaction callback with our mock transaction
+      try {
+        callback(mockTx);
+        if (successCallback) successCallback();
+      } catch (error) {
+        console.error('Error in mock transaction:', error);
+        if (errorCallback) errorCallback(error);
+      }
+    }
+  };
+}
 
 /**
  * Initialize the database by creating the necessary tables

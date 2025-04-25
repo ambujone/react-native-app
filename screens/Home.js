@@ -95,16 +95,23 @@ export default function Home({ navigation }) {
             console.log('Loading menu data from SQLite');
             const items = await getMenuItems();
             console.log(`Loaded ${items.length} items from SQLite`);
-            setMenuItems(items);
-            setFilteredMenuItems(items);
 
-            // Load categories
-            const categories = await getCategories();
-            console.log('Available categories:', categories);
-            setAvailableCategories(['All', ...categories]);
+            if (items.length > 0) {
+              setMenuItems(items);
+              setFilteredMenuItems(items);
+
+              // Load categories
+              const categories = await getCategories();
+              console.log('Available categories:', categories);
+              setAvailableCategories(['All', ...categories]);
+            } else {
+              // If we got an empty array, fetch from API
+              console.log('No items found in database, fetching from API');
+              await fetchMenuDataFromAPI();
+            }
           } else {
             // Fetch data from API
-            console.log('Fetching menu data from API');
+            console.log('No data in database, fetching from API');
             await fetchMenuDataFromAPI();
           }
         } catch (dbError) {
