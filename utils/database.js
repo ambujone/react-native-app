@@ -1,7 +1,7 @@
-import * as SQLite from 'expo-sqlite';
+import { openDatabase } from 'expo-sqlite';
 
 // Open the database
-const db = SQLite.openDatabase('little_lemon.db');
+const db = openDatabase('little_lemon.db');
 
 /**
  * Initialize the database by creating the necessary tables

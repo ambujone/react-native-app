@@ -2,16 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
-  Text,
   Image,
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
-  SafeAreaView,
   TextInput,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
@@ -64,21 +61,32 @@ export default function Home({ navigation }) {
         setIsLoading(true);
         setError(null);
 
-        // Initialize the database
-        await initDatabase();
+        try {
+          // Initialize the database
+          console.log('Initializing database...');
+          await initDatabase();
+          console.log('Database initialized successfully');
 
-        // Check if we already have menu data
-        const hasData = await hasMenuData();
+          // Check if we already have menu data
+          const hasData = await hasMenuData();
+          console.log('Has existing menu data:', hasData);
 
-        if (hasData) {
-          // Load data from SQLite
-          console.log('Loading menu data from SQLite');
-          const items = await getMenuItems();
-          setMenuItems(items);
-          setFilteredMenuItems(items);
-        } else {
-          // Fetch data from API
-          console.log('Fetching menu data from API');
+          if (hasData) {
+            // Load data from SQLite
+            console.log('Loading menu data from SQLite');
+            const items = await getMenuItems();
+            console.log(`Loaded ${items.length} items from SQLite`);
+            setMenuItems(items);
+            setFilteredMenuItems(items);
+          } else {
+            // Fetch data from API
+            console.log('Fetching menu data from API');
+            await fetchMenuDataFromAPI();
+          }
+        } catch (dbError) {
+          console.error('Database error:', dbError);
+          // If there's a database error, fall back to API
+          console.log('Falling back to API due to database error');
           await fetchMenuDataFromAPI();
         }
       } catch (error) {
@@ -96,15 +104,17 @@ export default function Home({ navigation }) {
   const fetchMenuDataFromAPI = async () => {
     try {
       // Fetch data from API
-      const response = await axios.get(
+      console.log('Making API request...');
+      const response = await fetch(
         'https://raw.githubusercontent.com/Meta-Mobile-Developer-PC/Working-With-Data-API/main/capstone.json'
       );
 
-      if (response.status !== 200) {
+      if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
       }
 
-      const data = response.data;
+      const data = await response.json();
+      console.log('API data received:', data ? 'success' : 'null');
 
       if (data && data.menu) {
         // Process menu items to add proper image URLs
@@ -116,12 +126,22 @@ export default function Home({ navigation }) {
             : null
         }));
 
-        // Save to SQLite
-        await saveMenuItems(processedMenuItems);
+        console.log(`Processed ${processedMenuItems.length} menu items`);
+
+        // Try to save to SQLite, but don't fail if it doesn't work
+        try {
+          console.log('Attempting to save to SQLite...');
+          await saveMenuItems(processedMenuItems);
+          console.log('Successfully saved to SQLite');
+        } catch (dbError) {
+          console.error('Error saving to SQLite (continuing anyway):', dbError);
+          // Continue even if saving to database fails
+        }
 
         // Update state
         setMenuItems(processedMenuItems);
         setFilteredMenuItems(processedMenuItems);
+        console.log('Menu items set in state');
       } else {
         throw new Error('Invalid data format');
       }
